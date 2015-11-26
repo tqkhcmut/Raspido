@@ -66,7 +66,7 @@ uint8_t checksum(char * packet)
 {
 	uint8_t checksum, i;
 //	packet_len = getTypeLength(mypacket->data_type) + 3;
-	for (i = 0; i < getPacketLength(packet); i++)
+	for (i = 0; i < getPacketLength(packet) - 1; i++)
 		checksum += packet[i];
 	checksum = !checksum + 1;
 	return checksum;
