@@ -29,12 +29,21 @@ uint32_t __unique_number = 1;
 int isOpenThesisDB = 0;
 sqlite3 * thesis_db;
 
+//pthread_mutex_t db_access;
+
 int ThesisConnectDB(void)
 {
-	if (sqlite3_open(THESIS_DB_NAME, &thesis_db) == SQLITE_OK)
+	int errno = sqlite3_open(THESIS_DB_NAME, &thesis_db);
+	if (errno == SQLITE_OK)
 	{
 		isOpenThesisDB = 1;
 		return 1;
+	}
+	else
+	{
+#if THESIS_DEBUG
+		printf("Database open error: %s.", sqlite3_errstr(errno));
+#endif
 	}
 
 	return 0;
@@ -68,7 +77,7 @@ int ThesisQueryData(struct ThesisData * data)
 #if THESIS_DEBUG
 		printf("Thesis packet checksum fail.\n");
 #endif
-		memset(data, packet->data, 0, getTypeLength(DATA_TYPE_THESIS_DATA));
+		memset(packet->data, 0, getTypeLength(DATA_TYPE_THESIS_DATA));
 		return 1;
 	}
 	else
@@ -84,15 +93,23 @@ int ThesisStoreToDatabase(struct ThesisData * data)
 	int result = -1;
 	char query[1024];
 
-	sprintf(query, "INSERT INTO sensor_values(unique, gas, lighting, tempc) VALUES(NULL,0.030, '')", )
+	sprintf(query,
+			"INSERT INTO sensor_values(unique, gas, lighting, tempc) VALUES(NULL,%d,%0.3f,%0.3f,%0.3f)",
+			__unique_number, data->Gas, data->Lighting, data->TempC);
 	if (ThesisConnectDB())
 	{
-		int prepare_query = sqlite3_prepare(dbfile, query, -1, &statement, 0);
+		int prepare_query = sqlite3_prepare(thesis_db, query, -1, &statement, 0);
 		if (prepare_query == SQLITE_OK)
 		{
 			int res = sqlite3_step(statement);
 			result = res;
 			sqlite3_finalize(statement);
+		}
+		else
+		{
+#if THESIS_DEBUG
+		printf("Database prepare_query error: %s.", sqlite3_errstr(prepare_query));
+#endif
 		}
 		ThesisDisonnectDB();
 		return result;
