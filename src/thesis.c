@@ -22,7 +22,7 @@
 #include "sqlite3.h"
 
 // global data
-uint32_t __unique_number = 1;
+//uint32_t __unique_number = 1;
 
 #define THESIS_DB_NAME "thesis.db"
 
@@ -57,11 +57,11 @@ void ThesisDisonnectDB(void)
 	}
 }
 
-int ThesisQueryData(struct ThesisData * data)
+int ThesisQueryData(struct ThesisData * data, uint32_t unique_number)
 {
 	struct Packet * packet = malloc(128);
 	packet->id = DEV_MY_THESIS; // device number have been replaced by unique number
-	memcpy(packet->unique_number, &__unique_number, sizeof(__unique_number));
+	memcpy(packet->unique_number, &unique_number, sizeof(uint32_t));
 	packet->cmd = CMD_TYPE_QUERY | CMD_SENSORS_VALUE;
 	packet->data_type = DATA_TYPE_THESIS_DATA | BIG_ENDIAN_BYTE_ORDER;
 	packet->data[getTypeLength(DATA_TYPE_THESIS_DATA)] = checksum((char *)packet);
@@ -87,7 +87,7 @@ int ThesisQueryData(struct ThesisData * data)
 	}
 }
 
-int ThesisStoreToDatabase(struct ThesisData * data)
+int ThesisStoreToDatabase(struct ThesisData * data, uint32_t unique_number)
 {
 	sqlite3_stmt *statement;
 	int result = -1;
@@ -95,7 +95,7 @@ int ThesisStoreToDatabase(struct ThesisData * data)
 
 	sprintf(query,
 			"INSERT INTO sensor_values(unique, gas, lighting, tempc) VALUES(NULL,%d,%0.3f,%0.3f,%0.3f)",
-			__unique_number, data->Gas, data->Lighting, data->TempC);
+			unique_number, data->Gas, data->Lighting, data->TempC);
 	if (ThesisConnectDB())
 	{
 		int prepare_query = sqlite3_prepare(thesis_db, query, -1, &statement, 0);
@@ -123,27 +123,41 @@ int ThesisStoreToDatabase(struct ThesisData * data)
 
 void * ThesisThread(void * params)
 {
+	unsigned int _time_poll = 500000; // 500ms
+	uint32_t _sensor_unique = (unsigned int) params;
 	struct ThesisData _thesis_data;
+
 	for(;;)
 	{
 		if (pthread_mutex_trylock(&serial_access) == 0)
 		{
-			if (ThesisQueryData(&_thesis_data) != 0)
+			if (ThesisQueryData(&_thesis_data, _sensor_unique) != 0)
 			{
 				// exit
 				ThesisDisonnectDB();
-				pthread_mutex_unlock(&serial_access);
-				pthread_exit(NULL);
+				_time_poll = 1000000;
+//				pthread_mutex_unlock(&serial_access);
+//				pthread_exit(NULL);
 			}
 			else
 			{
+				_time_poll = 500000;
+#if THESIS_DEBUG
+				printf("Got data from %d.\n", _sensor_unique);
+#endif
 				// put it to database
+				ThesisStoreToDatabase(&_thesis_data, _sensor_unique);
 			}
+			pthread_mutex_unlock(&serial_access);
 		}
 		else
 		{
-
+#if THESIS_DEBUG
+			printf("Thread: %d: cannot get serial access.\n", (int)pthread_self());
+#endif
 		}
+
+		usleep(_time_poll);
 	}
 	return NULL;
 }

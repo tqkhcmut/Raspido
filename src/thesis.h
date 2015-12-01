@@ -11,6 +11,10 @@
 #include <pthread.h>
 #include <stdint.h>
 
+#ifndef THESIS_DEBUG
+#define THESIS_DEBUG 1
+#endif
+
 int CreateThesisThread(pthread_t * handler, uint32_t unique_number);
 
 #endif /* SRC_THESIS_H_ */
