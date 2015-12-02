@@ -772,7 +772,7 @@ int Device_init(void)
 		dev_host[i].polling_control.destroy = 0;
 
 		printf("Create thread poll for Sensor Host %d.\r\n", i);
-		pthread_create(&polling_thread[i], NULL, &DevicePolling, (void *)i);
+		//pthread_create(&polling_thread[i], NULL, &DevicePolling, (void *)i);
 	}
 	
 	// create database push polling

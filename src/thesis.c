@@ -22,6 +22,8 @@
 #include "sqlite3.h"
 
 // global data
+struct ThesisData __sensors_data[SENSORS_MAX];
+unsigned char sensor_active[SENSORS_MAX];
 //uint32_t __unique_number = 1;
 
 #define THESIS_DB_NAME "thesis.db"
@@ -70,20 +72,34 @@ int ThesisQueryData(struct ThesisData * data, uint32_t unique_number)
 
 	usleep(5000); // 5ms
 
-	Serial_GetData((char *)packet, getPacketLength((char *)packet));
-	// checksum check
-	if (packet->data[getTypeLength(DATA_TYPE_THESIS_DATA)] != checksum((char *)packet))
+	if (Serial_Available())
 	{
+		Serial_GetData((char *)packet, getPacketLength((char *)packet));
+		// checksum check
+		if (packet->data[getTypeLength(DATA_TYPE_THESIS_DATA)] != checksum((char *)packet))
+		{
 #if THESIS_DEBUG
-		printf("Thesis packet checksum fail.\n");
+			printf("Thesis packet checksum fail.\n");
 #endif
-		memset(packet->data, 0, getTypeLength(DATA_TYPE_THESIS_DATA));
-		return 1;
+			sensor_active[unique_number] = 0;
+			memset(packet->data, 0, getTypeLength(DATA_TYPE_THESIS_DATA));
+			return 1;
+		}
+		else
+		{
+			sensor_active[unique_number] = 1;
+			memcpy(data, packet->data, getTypeLength(DATA_TYPE_THESIS_DATA));
+			return 0;
+		}
 	}
 	else
 	{
-		memcpy(data, packet->data, getTypeLength(DATA_TYPE_THESIS_DATA));
-		return 0;
+#if THESIS_DEBUG
+		printf("Timeout exception.\n");
+#endif
+		sensor_active[unique_number] = 0;
+		memset(packet->data, 0, getTypeLength(DATA_TYPE_THESIS_DATA));
+		return 1;
 	}
 }
 
@@ -147,6 +163,9 @@ void * ThesisThread(void * params)
 #endif
 				// put it to database
 				ThesisStoreToDatabase(&_thesis_data, _sensor_unique);
+
+				// put to array
+				__sensors_data[_sensor_unique] = _thesis_data;
 			}
 			pthread_mutex_unlock(&serial_access);
 		}

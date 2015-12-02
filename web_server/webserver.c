@@ -19,6 +19,10 @@
 #include "jquery-2-1-0-min.h"
 #include "smoothie.h"
 
+#include "thesis.h"
+#include "packet.h"
+void send_sensors_response(struct hitArgs *args, char *path, char *request_body);
+
 void* polling_thread(void *args);
 void send_response(struct hitArgs *args, char*, char*, http_verb);
 void log_filter(log_type, char*, char*, int);
@@ -35,29 +39,23 @@ int *usages;
 double temp;
 pthread_t polling_thread_id;
 
-//int main(int argc, char **argv)
-//{
-//	if (argc < 2 || !strncmp(argv[1], "-h", 2))
-//	{
-//		printf("hint: rcpu [port number]\n");
-//		return 0;
-//	}
-//
-//	max_cpu = get_graph_count();
-//	usages = mallocx(max_cpu * sizeof(int));
-//
-//	if (pthread_create(&polling_thread_id, NULL, polling_thread, NULL) !=0)
-//	{
-//		fprintf(stderr, "Error: pthread_create could not create polling thread");
-//		exit(EXIT_FAILURE);
-//	}
-//
-//	// don't read from the console or log anything
-//	dwebserver(atoi(argv[1]), &send_response, &log_filter);
-//
-//	free(usages);
-//	return 1; // just to stop compiler complaints
-//}
+int create_webserver(int port)
+{
+	max_cpu = get_graph_count();
+	usages = mallocx(max_cpu * sizeof(int));
+
+	if (pthread_create(&polling_thread_id, NULL, polling_thread, NULL) !=0)
+	{
+		fprintf(stderr, "Error: pthread_create could not create polling thread");
+		exit(EXIT_FAILURE);
+	}
+
+	// don't read from the console or log anything
+	dwebserver(port, &send_response, &log_filter);
+
+	free(usages);
+	return 1; // just to stop compiler complaints
+}
 
 void* polling_thread(void *args)
 {
@@ -91,8 +89,51 @@ void send_response(struct hitArgs *args, char *path, char *request_body, http_ve
 	{
 		return send_temp_response(args, path, request_body);
 	}
+	if (path_ends_with(path, "sensors.php"))
+	{
+		return send_sensors_response(args, path, request_body);
+	}
 
 	send_file_response(args, path, request_body, path_length);
+}
+
+// receives a number, returns the current CPU use
+void send_sensors_response(struct hitArgs *args, char *path, char *request_body)
+{
+	char tmp[30];
+
+	struct ThesisData _data;
+	int i;
+
+	for(i = 0; i < SENSORS_MAX; i++)
+	{
+		if (sensor_active[i])
+		{
+			_data = __sensors_data[i];
+			break;
+		}
+	}
+
+
+	if (args->form_value_counter==1 && !strncmp(form_name(args, 0), "counter", strlen(form_name(args, 0))))
+	{
+		STRING *response = new_string(32);
+		string_add(response, "[");
+		sprintf(tmp, "%0.3f,%0.3f,%0.3f", _data.Gas, _data.Lighting, _data.TempC);
+		string_add(response, tmp);
+		string_add(response, "]");
+
+		int c = atoi(form_value(args, 0));
+		if (c > max_cpu) c=0;
+		// TODO: use c if needed
+
+		ok_200(args, "\nContent-Type: application/json", string_chars(response), path);
+		string_free(response);
+	}
+	else
+	{
+		forbidden_403(args, "Bad request");
+	}
 }
 
 // receives a number, returns the current CPU use
@@ -102,9 +143,10 @@ void send_cpu_response(struct hitArgs *args, char *path, char *request_body)
 
 	if (args->form_value_counter==1 && !strncmp(form_name(args, 0), "counter", strlen(form_name(args, 0))))
 	{
+		int p;
 		STRING *response = new_string(32);
 		string_add(response, "[");
-		for (int p=0; p<max_cpu; p++)
+		for (p=0; p<max_cpu; p++)
 		{
 			sprintf(tmp, "%d", usages[p]);
 			string_add(response, tmp);
