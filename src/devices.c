@@ -5,43 +5,17 @@
  *      Author: kieu
  */
 
-#include <endian.h>
-#if __BYTE_ORDER == __BIG_ENDIAN
-// No translation needed for big endian system
-#define Swap2Bytes(val) val
-#define Swap4Bytes(val) val
-#define Swap8Bytes(val) val
-#else
-// Swap 2 byte, 16 bit values:
-#define Swap2Bytes(val) \
-		( (((val) >> 8) & 0x00FF) | (((val) << 8) & 0xFF00) )
-
-// Swap 4 byte, 32 bit values:
-#define Swap4Bytes(val) \
-		( (((val) >> 24) & 0x000000FF) | (((val) >>  8) & 0x0000FF00) | \
-				(((val) <<  8) & 0x00FF0000) | (((val) << 24) & 0xFF000000) )
-
-// Swap 8 byte, 64 bit values:
-#define Swap8Bytes(val) \
-		( (((val) >> 56) & 0x00000000000000FF) | (((val) >> 40) & 0x000000000000FF00) | \
-				(((val) >> 24) & 0x0000000000FF0000) | (((val) >>  8) & 0x00000000FF000000) | \
-				(((val) <<  8) & 0x000000FF00000000) | (((val) << 24) & 0x0000FF0000000000) | \
-				(((val) << 40) & 0x00FF000000000000) | (((val) << 56) & 0xFF00000000000000) )
-#endif
-
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #include "devices.h"
 #include "serial.h"
-#include "ishare.h"
 #include "raspi_ext.h"
+#include "thesis.h"
 
-#ifdef __linux
 #include <unistd.h>
 #include "../wiringPi/wiringPi.h"
-#endif
 
 #include <pthread.h>
 	
@@ -58,200 +32,6 @@ struct Device dev_host[DEV_HOST_NUMBER];
 pthread_mutex_t device_control_access = PTHREAD_MUTEX_INITIALIZER;
 // protect serial access
 pthread_mutex_t serial_access = PTHREAD_MUTEX_INITIALIZER;
-
-#if DATABASE
-#include <sqlite3.h>
-	
-// Pointer to Sqlite3 DB - used to access DB when open
-sqlite3 *db = NULL;
-// Path to DB file - same dir as this program's executable
-const char *dbPath = "../raspi_sensor.db";
-// DB Statement handle - used to run SQL statements
-sqlite3_stmt *stmt = NULL;
-
-pthread_mutex_t db_token = PTHREAD_MUTEX_INITIALIZER;
-
-/* 
-CREATE TABLE [sensor_types] (
-[sensor_types_id] INTEGER  NOT NULL PRIMARY KEY AUTOINCREMENT,
-[name] NVARCHAR(200)  NOT NULL,
-[description] nvarCHAR(250)  NULL
-);
-
-CREATE TABLE [sensor_values] (
-[sensor_values_id] INTEGER  NOT NULL PRIMARY KEY AUTOINCREMENT,
-[sensors_id] intEGER  NOT NULL,
-[sensor_value] FLOAT  NOT NULL,
-[timestamp] FLOAT  NOT NULL,
-[created] TIMESTAMP  NOT NULL
-);
-
-CREATE TABLE [sensors] (
-[sensors_id] INTEGER  NOT NULL PRIMARY KEY AUTOINCREMENT,
-[sensor_types_id] intEGER  NOT NULL,
-[name] nvarCHAR(250)  NOT NULL,
-[code] nvaRCHAR(50)  NOT NULL,
-[data_symbol] nvaRCHAR(50)  NULL,
-[sample_time] intEGER  NULL,
-[sample_speed] intEGER  NULL,
-[unit] nvaRCHAR(200)  NULL
-);
-*/
-
-// some speacial informations for each sensors
-
-// Ultra Sonic
-const char * UltraSonic_name = "Ultra Sonic";
-const char * UltraSonic_description = "Measure distance use ultra sonic waveform.";
-const char * UltraSonic_code = "US";
-const char * UltraSonic_symbol = "US";
-const char * UltraSonic_unit = "cm";
-
-const char * sensor_types = "INSERT INTO sensor_types(sensor_types_id, name, description) VALUES(?, ?, ?)";
-const char * sensor_values = "INSERT INTO sensor_values(sensor_values_id, sensors_id, sensor_value, measured_timestamp, created) VALUES(?, ?, ?, ?, ?)";
-const char * sensor_values_short = "INSERT INTO sensor_values(sensor_value, measured_timestamp) VALUES(?, ?)";
-const char * sensors = "INSERT INTO sensors(sensors_id, sensor_types_id, name, code, data_symbol, sample_time, sample_speed, unit) VALUES(?, ?, ?, ?, ?, ?, ?, ?)";
-
-int DB_Record_sensor_types(int sensor_types_id, char *name, char * description) 
-{
-	if (pthread_mutex_trylock(&db_token) == 0)
-	{	
-		sqlite3_prepare_v2(db, sensor_types, strlen(sensor_types), &stmt, NULL);
-		sqlite3_bind_int(stmt, 1, sensor_types_id);
-		sqlite3_bind_text(stmt, 2, name, strlen(name), 0);
-		sqlite3_bind_text(stmt, 3, description, strlen(description), 0);	
-
-		sqlite3_step(stmt);  // Run SQL INSERT
-
-		sqlite3_reset(stmt); // Clear statement handle for next use
-	
-		pthread_mutex_unlock(&db_token);
-	}
-	else
-	{
-#if DEVICE_DEBUG
-		printf("Cannot access db token.\n");
-#endif
-			return - 1;
-	}
-	return 0;
-}
-int DB_Record_sensor_values(int sensor_values_id, int sensors_id, float sensor_value, float measured_timestamp, unsigned int created)
-{
-#if DEVICE_DEBUG 
-	printf("DB_Record_sensor_values.\n");
-#endif
-	if (pthread_mutex_trylock(&db_token) == 0)
-	{	
-		sqlite3_prepare_v2(db, sensor_values, strlen(sensor_values), &stmt, NULL);
-		sqlite3_bind_int(stmt, 1, sensor_values_id);
-		sqlite3_bind_int(stmt, 2, sensors_id);
-		sqlite3_bind_double(stmt, 3, sensor_value);
-		sqlite3_bind_double(stmt, 4, measured_timestamp);
-		sqlite3_bind_int(stmt, 5, created);
-
-		sqlite3_step(stmt);  // Run SQL INSERT
-
-		sqlite3_reset(stmt); // Clear statement handle for next use
-
-		pthread_mutex_unlock(&db_token);
-	}
-	else
-	{
-#if DEVICE_DEBUG 
-		printf("Cannot access db token.\n");
-#endif
-			return - 1;
-	}
-	return 0;
-}
-int DB_Record_sensor_values_short(float sensor_value, float measured_timestamp)
-{
-#if DEVICE_DEBUG 
-	printf("DB_Record_sensor_values_short.\n");
-#endif
-	if (pthread_mutex_trylock(&db_token) == 0)
-	{	
-		if (sqlite3_prepare(db, sensor_values_short, strlen(sensor_values_short), &stmt, NULL) != SQLITE_OK)
-		{
-#if DEVICE_DEBUG 
-			printf("DB_Record_sensor_values_short: error occur while sqlite3_prepare.\n");
-#endif
-			return - 1;
-		}
-		if (sqlite3_bind_double(stmt, 1, sensor_value) != SQLITE_OK)
-		{
-#if DEVICE_DEBUG 
-			printf("DB_Record_sensor_values_short: error occur while sqlite3_bind_double.\n");
-#endif
-			return -1;
-		}
-		if (sqlite3_bind_double(stmt, 2, measured_timestamp) != SQLITE_OK)
-		{
-#if DEVICE_DEBUG 
-			printf("DB_Record_sensor_values_short: error occur while sqlite3_bind_double.\n");
-#endif
-			return -1;
-		}
-
-		sqlite3_step(stmt);  // Run SQL INSERT
-
-		sqlite3_reset(stmt); // Clear statement handle for next use
-
-		pthread_mutex_unlock(&db_token);
-	}
-	else
-	{
-#if DEVICE_DEBUG 
-		printf("Cannot access db token.\n");
-#endif
-			return - 1;
-	}
-	return 0;
-}
-int DB_Record_sensors(int sensors_id, int sensor_types_id, char *name, char * code, char * data_symbol, int sample_time, int sample_speed, char * unit) 
-{
-#if DEVICE_DEBUG
-	printf("DB_Record_sensors.\n");
-#endif
-	if (pthread_mutex_trylock(&db_token) == 0)
-	{	
-	sqlite3_prepare(db, sensors, strlen(sensors), &stmt, NULL);
-	sqlite3_bind_int(stmt, 1, sensors_id);
-	sqlite3_bind_int(stmt, 2, sensor_types_id);
-	sqlite3_bind_text(stmt, 3, name, strlen(name), 0);
-	sqlite3_bind_text(stmt, 4, code, strlen(code), 0);	
-	sqlite3_bind_text(stmt, 5, data_symbol, strlen(data_symbol), 0);	
-	sqlite3_bind_int(stmt, 6, sample_time);
-	sqlite3_bind_int(stmt, 7, sample_speed);
-	sqlite3_bind_text(stmt, 8, unit, strlen(unit), 0);	
-
-	sqlite3_step(stmt);  // Run SQL INSERT
-
-	sqlite3_reset(stmt); // Clear statement handle for next use
-
-		pthread_mutex_unlock(&db_token);
-	}
-	else
-	{
-#if DEVICE_DEBUG
-		printf("Cannot access db token.\n");
-#endif
-			return - 1;
-	}
-	return 0;
-}
-int DB_IsExist_sensors(int sensors_id, int sensor_types_id, char *name, char * code, char * data_symbol, int sample_time, int sample_speed, char * unit) 
-{
-	
-	return 0;
-}
-int DB_IsExist_sensor_types(int sensor_types_id, char *name, char * description) 
-{
-	
-	return 0;
-}
-#endif  // DATABASE
 
 int sendControl(struct Device dev)
 {
@@ -597,23 +377,6 @@ void * DevicePolling(void * host_number) // thread
 						host,
 						my_float.f);
 					
-					// put to db
-#if DATABASE
-					//// put this device into database
-					//if (DB_IsExist_sensors(dev_host[host].number, dev_host[host].type, UltraSonic_name, 
-						//UltraSonic_code, UltraSonic_symbol, 30, 10, UltraSonic_unit) == 0) // not exist
-					//{
-						//DB_Record_sensors(dev_host[host].number, dev_host[host].type, UltraSonic_name, 
-							//UltraSonic_code, UltraSonic_symbol, 30, 10, UltraSonic_unit);
-					//}
-					//if (DB_IsExist_sensor_types(dev_host[host].type, UltraSonic_name, UltraSonic_description) == 0) // not exist
-					//{
-						//DB_Record_sensor_types(dev_host[host].type, UltraSonic_name, UltraSonic_description);
-					//}
-					////DB_Record_sensor_values(dev_host[host].type, UltraSonic_name, UltraSonic_description);
-					DB_Record_sensor_values_short(my_float.f, millis()/1000);
-#endif
-
 					// adjust time polling
 
 					// save to shared memory
@@ -736,27 +499,9 @@ int Device_init(void)
 	int i = 0;
 	printf("Initial Sensor Host.\r\n");
 	
-	//char *strDeviceName = "Temperature Sensor";	
-//
-	//int rc = sqlite3_open(dbPath, &db);
-//
-	//if (rc) {
-		//fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
-		//exit(0);
-	//}
-	
 	pthread_mutex_init(&device_control_access, NULL);
 	pthread_mutex_init(&serial_access, NULL);
-#if DATABASE
-	pthread_mutex_init(&db_token, NULL);
-	if (sqlite3_open(dbPath, &db)) 
-	{
-		printf("Can't open database: %s\n", sqlite3_errmsg(db));
-		db = NULL;
-		// hold the token
-		pthread_mutex_lock(&db_token);
-	}
-#endif 
+
 	RaspiExt_Init();
 
 	Serial_Init();
@@ -772,11 +517,12 @@ int Device_init(void)
 		dev_host[i].polling_control.destroy = 0;
 
 		printf("Create thread poll for Sensor Host %d.\r\n", i);
-		//pthread_create(&polling_thread[i], NULL, &DevicePolling, (void *)i);
+//		pthread_create(&polling_thread[i], NULL, &DevicePolling, (void *)i);
+		CreateThesisThread(&polling_thread[i], i);
 	}
 	
 	// create database push polling
-	db_com_init(dev_host);
+//	db_com_init(dev_host);
 	return 0;
 }
 int Device_startPooling(int host_number)

@@ -23,7 +23,7 @@
 #include "packet.h"
 void send_sensors_response(struct hitArgs *args, char *path, char *request_body);
 
-void* polling_thread(void *args);
+//void* polling_thread(void *args);
 void send_response(struct hitArgs *args, char*, char*, http_verb);
 void log_filter(log_type, char*, char*, int);
 void send_cpu_response(struct hitArgs *args, char*, char*);
@@ -44,11 +44,11 @@ int create_webserver(int port)
 	max_cpu = get_graph_count();
 	usages = mallocx(max_cpu * sizeof(int));
 
-	if (pthread_create(&polling_thread_id, NULL, polling_thread, NULL) !=0)
-	{
-		fprintf(stderr, "Error: pthread_create could not create polling thread");
-		exit(EXIT_FAILURE);
-	}
+//	if (pthread_create(&polling_thread_id, NULL, polling_thread, NULL) !=0)
+//	{
+//		fprintf(stderr, "Error: pthread_create could not create polling thread");
+//		exit(EXIT_FAILURE);
+//	}
 
 	// don't read from the console or log anything
 	dwebserver(port, &send_response, &log_filter);
@@ -57,20 +57,20 @@ int create_webserver(int port)
 	return 1; // just to stop compiler complaints
 }
 
-void* polling_thread(void *args)
-{
-	int i=5;
-	while (1)
-	{
-		if (++i >= 5)
-		{
-			temp = get_temp();
-			i=0;
-		}
-		get_cpu_use(usages, max_cpu);
-	}
-	return NULL;
-}
+//void* polling_thread(void *args)
+//{
+//	int i=5;
+//	while (1)
+//	{
+//		if (++i >= 5)
+//		{
+//			temp = get_temp();
+//			i=0;
+//		}
+//		get_cpu_use(usages, max_cpu);
+//	}
+//	return NULL;
+//}
 
 void log_filter(log_type type, char *s1, char *s2, int socket_fd)
 {

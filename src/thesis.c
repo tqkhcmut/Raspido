@@ -26,7 +26,7 @@ struct ThesisData __sensors_data[SENSORS_MAX];
 unsigned char sensor_active[SENSORS_MAX];
 //uint32_t __unique_number = 1;
 
-#define THESIS_DB_NAME "thesis.db"
+#define THESIS_DB_NAME "/var/www/tqk/thesis.db"
 
 int isOpenThesisDB = 0;
 sqlite3 * thesis_db;
@@ -68,9 +68,19 @@ int ThesisQueryData(struct ThesisData * data, uint32_t unique_number)
 	packet->data_type = DATA_TYPE_THESIS_DATA | BIG_ENDIAN_BYTE_ORDER;
 	packet->data[getTypeLength(DATA_TYPE_THESIS_DATA)] = checksum((char *)packet);
 
+#if THESIS_DEBUG
+	printf("Query Packet: ");
+	int i;
+	for (i = 0; i < getPacketLength((char *)packet); i++)
+	{
+		printf("%02X ", *((unsigned char *) packet + i));
+	}
+	printf("Checksum: %02X.\n", *(((char *)packet) + getPacketLength((char *)packet)));
+	printf("\n");
+#endif
 	Serial_SendMultiBytes((unsigned char*)packet, getPacketLength((char *)packet));
 
-	usleep(5000); // 5ms
+	usleep(50000); // 50ms
 
 	if (Serial_Available())
 	{
@@ -110,7 +120,7 @@ int ThesisStoreToDatabase(struct ThesisData * data, uint32_t unique_number)
 	char query[1024];
 
 	sprintf(query,
-			"INSERT INTO sensor_values(unique, gas, lighting, tempc) VALUES(NULL,%d,%0.3f,%0.3f,%0.3f)",
+			"INSERT INTO sensor_values(unique, gas, lighting, tempc) VALUES(%d,%0.3f,%0.3f,%0.3f)",
 			unique_number, data->Gas, data->Lighting, data->TempC);
 	if (ThesisConnectDB())
 	{
@@ -142,10 +152,17 @@ void * ThesisThread(void * params)
 	unsigned int _time_poll = 500000; // 500ms
 	uint32_t _sensor_unique = (unsigned int) params;
 	struct ThesisData _thesis_data;
-
+	int access_try = 3;
 	for(;;)
 	{
-		if (pthread_mutex_trylock(&serial_access) == 0)
+		access_try = 3;
+		while (pthread_mutex_trylock(&serial_access) == 0)
+		{
+			access_try--;
+			if (access_try == 0)
+				break;
+		}
+		if (access_try > 0)
 		{
 			if (ThesisQueryData(&_thesis_data, _sensor_unique) != 0)
 			{
