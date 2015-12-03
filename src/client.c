@@ -36,7 +36,6 @@ int Client_DataAvailable(void)
 
 int Client_Init(const char * server_address, unsigned int server_port)
 {
-	struct sockaddr_in serv_addr, cli_addr;
 
 	return 0;
 }
