@@ -68,7 +68,7 @@ int UnRegisterID(unsigned char * id)
 	{
 		if (tmpReg->type == DEV_TYPE_MASK(*id))
 		{
-			unsigned char i, tmpNum;
+			unsigned char tmpNum;
 			tmpNum = DEV_NUMBER_MASK(*id);
 			tmpReg->number_mask &= ~(1 << (tmpNum - 1));
 		}

@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdint.h>
 
 #include "sqlite3.h"
 
@@ -30,6 +31,14 @@ unsigned char sensor_active[SENSORS_MAX];
 
 int isOpenThesisDB = 0;
 sqlite3 * thesis_db;
+
+#ifndef int_s
+typedef union
+{
+	uint32_t int_n;
+	uint8_t int_b[4];
+} int_s;
+#endif
 
 //pthread_mutex_t db_access;
 
@@ -61,38 +70,56 @@ void ThesisDisonnectDB(void)
 
 int ThesisQueryData(struct ThesisData * data, uint32_t unique_number)
 {
+	int_s _unique_number;
+	_unique_number.int_n = unique_number;
 	struct Packet * packet = malloc(128);
 	packet->id = DEV_MY_THESIS; // device number have been replaced by unique number
-	memcpy(packet->unique_number, &unique_number, sizeof(uint32_t));
+	packet->unique_number[0] = _unique_number.int_b[3];
+	packet->unique_number[1] = _unique_number.int_b[2];
+	packet->unique_number[2] = _unique_number.int_b[1];
+	packet->unique_number[3] = _unique_number.int_b[0];
+	//	memcpy(packet->unique_number, &unique_number, sizeof(uint32_t));
 	packet->cmd = CMD_TYPE_QUERY | CMD_SENSORS_VALUE;
 	packet->data_type = DATA_TYPE_THESIS_DATA | BIG_ENDIAN_BYTE_ORDER;
 	packet->data[getTypeLength(DATA_TYPE_THESIS_DATA)] = checksum((char *)packet);
 
 #if THESIS_DEBUG
-	printf("Query Packet: ");
+	printf("Thread: %d: Query Packet: ", unique_number);
 	int i;
 	for (i = 0; i < getPacketLength((char *)packet); i++)
 	{
 		printf("%02X ", *((unsigned char *) packet + i));
 	}
-	printf("Checksum: %02X.\n", *(((char *)packet) + getPacketLength((char *)packet)));
-	printf("\n");
+	printf("\nThread: %d: Checksum: %02X.\n", unique_number, packet->data[getTypeLength(DATA_TYPE_THESIS_DATA)]);
 #endif
+
 	Serial_SendMultiBytes((unsigned char*)packet, getPacketLength((char *)packet));
 
-	usleep(50000); // 50ms
+	usleep(100000); // 100ms
 
 	if (Serial_Available())
 	{
 		Serial_GetData((char *)packet, getPacketLength((char *)packet));
+#if THESIS_DEBUG
+		printf("Thread: %d: Received Packet: ", unique_number);
+		int i;
+		for (i = 0; i < getPacketLength((char *)packet); i++)
+		{
+			printf("%02X ", *((unsigned char *) packet + i));
+		}
+		printf("\nThread: %d: Checksum: %02X.\n", unique_number, packet->data[getTypeLength(DATA_TYPE_THESIS_DATA)]);
+#endif
 		// checksum check
 		if (packet->data[getTypeLength(DATA_TYPE_THESIS_DATA)] != checksum((char *)packet))
 		{
 #if THESIS_DEBUG
-			printf("Thesis packet checksum fail.\n");
+			printf("Thread: %d: Thesis packet checksum fail. Received: %X2. Own: %X2\n",
+					unique_number,
+					packet->data[getTypeLength(DATA_TYPE_THESIS_DATA)],
+					checksum((char *)packet));
 #endif
 			sensor_active[unique_number] = 0;
-			memset(packet->data, 0, getTypeLength(DATA_TYPE_THESIS_DATA));
+			memset(data, 0, getTypeLength(DATA_TYPE_THESIS_DATA));
 			return 1;
 		}
 		else
@@ -105,7 +132,7 @@ int ThesisQueryData(struct ThesisData * data, uint32_t unique_number)
 	else
 	{
 #if THESIS_DEBUG
-		printf("Timeout exception.\n");
+		printf("Thread: %d: Timeout exception.\n", unique_number);
 #endif
 		sensor_active[unique_number] = 0;
 		memset(packet->data, 0, getTypeLength(DATA_TYPE_THESIS_DATA));
@@ -120,8 +147,11 @@ int ThesisStoreToDatabase(struct ThesisData * data, uint32_t unique_number)
 	char query[1024];
 
 	sprintf(query,
-			"INSERT INTO sensor_values(unique, gas, lighting, tempc) VALUES(%d,%0.3f,%0.3f,%0.3f)",
+			"INSERT INTO sensor_values(unique_number, gas, lighting, tempc) VALUES(%d,%0.3f,%0.3f,%0.3f)",
 			unique_number, data->Gas, data->Lighting, data->TempC);
+#if THESIS_DEBUG
+	printf("Thread: %d: Database query: %s.\n", unique_number, query);
+#endif
 	if (ThesisConnectDB())
 	{
 		int prepare_query = sqlite3_prepare(thesis_db, query, -1, &statement, 0);
@@ -134,7 +164,7 @@ int ThesisStoreToDatabase(struct ThesisData * data, uint32_t unique_number)
 		else
 		{
 #if THESIS_DEBUG
-		printf("Database prepare_query error: %s.", sqlite3_errstr(prepare_query));
+			printf("Thread: %d: Database prepare_query error: %s.", unique_number, sqlite3_errstr(prepare_query));
 #endif
 		}
 		ThesisDisonnectDB();
@@ -142,6 +172,9 @@ int ThesisStoreToDatabase(struct ThesisData * data, uint32_t unique_number)
 	}
 	else
 	{
+#if THESIS_DEBUG
+		printf("Thread: %d: Database cannot connect..", unique_number);
+#endif
 		result = 0;
 	}
 	return result;
@@ -156,7 +189,7 @@ void * ThesisThread(void * params)
 	for(;;)
 	{
 		access_try = 3;
-		while (pthread_mutex_trylock(&serial_access) == 0)
+		while (pthread_mutex_trylock(&serial_access) != 0)
 		{
 			access_try--;
 			if (access_try == 0)
@@ -167,16 +200,16 @@ void * ThesisThread(void * params)
 			if (ThesisQueryData(&_thesis_data, _sensor_unique) != 0)
 			{
 				// exit
-				ThesisDisonnectDB();
+				//				ThesisDisonnectDB();
 				_time_poll = 1000000;
-//				pthread_mutex_unlock(&serial_access);
-//				pthread_exit(NULL);
+				//				pthread_mutex_unlock(&serial_access);
+				//				pthread_exit(NULL);
 			}
 			else
 			{
 				_time_poll = 500000;
 #if THESIS_DEBUG
-				printf("Got data from %d.\n", _sensor_unique);
+				printf("Thread: %d: Got data from %d.\n", _sensor_unique, _sensor_unique);
 #endif
 				// put it to database
 				ThesisStoreToDatabase(&_thesis_data, _sensor_unique);
@@ -189,7 +222,7 @@ void * ThesisThread(void * params)
 		else
 		{
 #if THESIS_DEBUG
-			printf("Thread: %d: cannot get serial access.\n", (int)pthread_self());
+			printf("Thread: %d: cannot get serial access.\n", _sensor_unique);
 #endif
 		}
 

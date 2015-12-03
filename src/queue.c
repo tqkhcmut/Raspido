@@ -19,7 +19,7 @@ int QueueCreate(Queue_t * queue, int data_len)
 }
 int QueueEnQueue(Queue_t * queue, void * data)
 {
-	struct QueueData * newdata;
+	struct QueueData * newdata = malloc(sizeof(struct QueueData));
 	if (queue->data_len == 0)
 		// something wrong with data length, may be queue not created
 		return -1;

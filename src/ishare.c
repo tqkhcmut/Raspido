@@ -22,7 +22,6 @@ struct iSharePrivate
 	char * shm_pointer;
 };
 
-void * DevicePolling(void * handle_obj); // thread
 
 int iShare_Init(struct iShare * iShare)
 {
