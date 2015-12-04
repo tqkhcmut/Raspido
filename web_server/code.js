@@ -1,13 +1,12 @@
 var gas_timeline = new TimeSeries();
 var lighting_timeline = new TimeSeries();
 var tempc_timeline = new TimeSeries();
-var windowGap = 40;
 
 $(function() {
 	$("#status").text("");
-    document.getElementById('gas').width  = window.innerWidth-windowGap;
-    document.getElementById('lighting').width  = window.innerWidth-windowGap;
-    document.getElementById('tempc').width  = window.innerWidth-windowGap;
+    document.getElementById('gas').width  = $(window).width() * 0.75;
+    document.getElementById('lighting').width  = $(window).width() * 0.75;
+    document.getElementById('tempc').width  = $(window).width() * 0.75;
 	get_sensors_value();
 	setInterval("get_sensors_value()", 1000);
 	
@@ -67,7 +66,7 @@ $(function() {
 function get_sensors_value()
 {
    $.ajax({
-		url: "sensors.php",
+		url: "request.php",
 		type: "post",
 		data: { counter:"0" }
 	}).done(function(values)

@@ -95,7 +95,7 @@ int ThesisQueryData(struct ThesisData * data, uint32_t unique_number)
 
 	Serial_SendMultiBytes((unsigned char*)packet, getPacketLength((char *)packet));
 
-	usleep(100000); // 100ms
+	usleep(50000); // 50ms
 
 	if (Serial_Available())
 	{
@@ -147,7 +147,7 @@ int ThesisStoreToDatabase(struct ThesisData * data, uint32_t unique_number)
 	char query[1024];
 
 	sprintf(query,
-			"INSERT INTO sensor_values(unique_number, gas, lighting, tempc) VALUES(%d,%0.3f,%0.3f,%0.3f)",
+			"INSERT INTO sensor_values(record_time, unique_number, gas, lighting, tempc) VALUES(CURRENT_TIMESTAMP,%d,%0.3f,%0.3f,%0.3f)",
 			unique_number, data->Gas, data->Lighting, data->TempC);
 #if THESIS_DEBUG
 	printf("Thread: %d: Database query: %s.\n", unique_number, query);
@@ -182,18 +182,19 @@ int ThesisStoreToDatabase(struct ThesisData * data, uint32_t unique_number)
 
 void * ThesisThread(void * params)
 {
-	unsigned int _time_poll = 500000; // 500ms
+	unsigned int _time_poll = 1000000; // 500ms
 	uint32_t _sensor_unique = (unsigned int) params;
 	struct ThesisData _thesis_data;
-	int access_try = 3;
+	int access_try = 50;
 	for(;;)
 	{
-		access_try = 3;
+		access_try = 50;
 		while (pthread_mutex_trylock(&serial_access) != 0)
 		{
 			access_try--;
 			if (access_try == 0)
 				break;
+			usleep(10000); // 10ms
 		}
 		if (access_try > 0)
 		{
@@ -207,7 +208,7 @@ void * ThesisThread(void * params)
 			}
 			else
 			{
-				_time_poll = 500000;
+				_time_poll = 1000000;
 #if THESIS_DEBUG
 				printf("Thread: %d: Got data from %d.\n", _sensor_unique, _sensor_unique);
 #endif
