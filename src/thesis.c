@@ -147,7 +147,7 @@ int ThesisStoreToDatabase(struct ThesisData * data, uint32_t unique_number)
 	char query[1024];
 
 	sprintf(query,
-			"INSERT INTO sensor_values(record_time, unique_number, gas, lighting, tempc) VALUES(CURRENT_TIMESTAMP,%d,%0.3f,%0.3f,%0.3f)",
+			"INSERT INTO sensor_values(unique_number, gas, lighting, tempc) VALUES(%d,%0.3f,%0.3f,%0.3f)",
 			unique_number, data->Gas, data->Lighting, data->TempC);
 #if THESIS_DEBUG
 	printf("Thread: %d: Database query: %s.\n", unique_number, query);
