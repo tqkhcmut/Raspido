@@ -22,16 +22,20 @@
 #include "queue.h"
 #include "register.h"
 #include "db_com.h"
+#include "usb_rf.h"
 
 #define DEV_HOST_NUMBER 4 // 4 USB interfaces
 
 pthread_t polling_thread[DEV_HOST_NUMBER];
+pthread_t polling_threadusb[DEV_HOST_NUMBER];
 struct Device dev_host[DEV_HOST_NUMBER];
 
 // protect device host access
 pthread_mutex_t device_control_access = PTHREAD_MUTEX_INITIALIZER;
 // protect serial access
 pthread_mutex_t serial_access = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t usbrf_access = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t db_access = PTHREAD_MUTEX_INITIALIZER;
 
 int sendControl(struct Device dev)
 {
@@ -501,6 +505,8 @@ int Device_init(void)
 	
 	pthread_mutex_init(&device_control_access, NULL);
 	pthread_mutex_init(&serial_access, NULL);
+	pthread_mutex_init(&usbrf_access, NULL);
+	pthread_mutex_init(&db_access, NULL);
 
 	RaspiExt_Init();
 
@@ -518,9 +524,9 @@ int Device_init(void)
 
 		printf("Create thread poll for Sensor Host %d.\r\n", i);
 //		pthread_create(&polling_thread[i], NULL, &DevicePolling, (void *)i);
-		CreateThesisThread(&polling_thread[i], i+1);
+		CreateThesisThread(&polling_thread[i], &polling_threadusb[i], i+1);
 	}
-	
+	USBRF_Init();
 	// create database push polling
 //	db_com_init(dev_host);
 	return 0;

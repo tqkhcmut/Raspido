@@ -22,10 +22,7 @@ void * db_com_thread(void * host_list)
 	hosts = (struct Device *) host_list;
 	
 	for (;;)
-	{
-		// collect informations the push t db_push_data
-		while (pthread_mutex_trylock(&device_control_access) != 0)
-			;
+	{			;
 		for (i = 0; i < 4; i++) // 4 host
 		{
 			db_push_data.data[i].host_id = i + 1;
@@ -70,7 +67,7 @@ void * db_com_thread(void * host_list)
 			}
 			db_push_data.data[i].sensor_value = my_float.f;
 		}
-		pthread_mutex_unlock(&device_control_access);
+
 		// convert to string
 		memset(db_push_data.raw_data, 0, SQL_STR_SIZE);
 		sprintf(db_push_data.raw_data, db_str_format, 

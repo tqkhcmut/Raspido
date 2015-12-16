@@ -16,7 +16,7 @@
 #define THESIS_DEBUG 1
 #endif
 
-int CreateThesisThread(pthread_t * handler, uint32_t unique_number);
+int CreateThesisThread(pthread_t * handler1, pthread_t * handler2, uint32_t unique_number);
 
 
 #define SENSORS_MAX	10
