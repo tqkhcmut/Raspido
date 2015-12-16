@@ -182,6 +182,7 @@ int ThesisStoreToDatabase(struct ThesisData * data, uint32_t unique_number)
 #endif
 			}
 			ThesisDisonnectDB();
+			pthread_mutex_unlock(&db_access);
 			return result;
 		}
 		else
