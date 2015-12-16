@@ -10,7 +10,7 @@ int isOpenDB = 0;
 sqlite3 *dbfile;
 int ConnectDB(void)
 {
-	if (sqlite3_open(DB, &dbfile) == SQLITE_OK)
+	if (sqlite3_open_v2(DB, &dbfile, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_WAL, NULL) == SQLITE_OK)
 	{
 		isOpenDB = 1;
 		return 1;

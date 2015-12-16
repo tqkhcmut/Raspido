@@ -14,6 +14,7 @@
 #include <fcntl.h>
 #include <termios.h>
 #include <usb.h>
+#include <pthread.h>
 
 char COM[32];
 
@@ -29,6 +30,35 @@ static inline void unlock_usbrf_access(void)
 {
 	pthread_mutex_unlock(&usbrf_fd_access);
 }
+
+
+#if USBRF_AUTO
+pthread_t usb_polling_handler;
+void * usb_polling(void * params)
+{
+    struct usb_bus *bus;
+    struct usb_device *dev;
+
+    for(;;)
+    {
+    	usb_init();
+    	usb_find_busses();
+    	usb_find_devices();
+    	for (bus = usb_busses; bus; bus = bus->next)
+    	{
+    		for (dev = bus->devices; dev; dev = dev->next)
+    		{
+    			printf("Trying device %s/%s\n", bus->dirname, dev->filename);
+    			printf("\tID_VENDOR = 0x%04x\n", dev->descriptor.idVendor);
+    			printf("\tID_PRODUCT = 0x%04x\n", dev->descriptor.idProduct);
+    		}
+    	}
+
+    	sleep(1);
+    }
+    return NULL;
+}
+#endif
 
 int set_interface_attribs (int fd, int speed, int parity)
 {
@@ -81,52 +111,30 @@ void set_blocking (int fd, int should_block)
 	}
 
 	tty.c_cc[VMIN]  = should_block ? 1 : 0;
-	tty.c_cc[VTIME] = 5;            // 0.5 seconds read timeout
+	tty.c_cc[VTIME] = 1;            // 0.1 seconds read timeout
 
 	if (tcsetattr (fd, TCSANOW, &tty) != 0)
 		printf ("error %d setting term attributes", errno);
 }
 
-pthread_t usb_polling_handler;
-void * usb_polling(void * params)
-{
-    struct usb_bus *bus;
-    struct usb_device *dev;
-
-    for(;;)
-    {
-    	usb_init();
-    	usb_find_busses();
-    	usb_find_devices();
-    	for (bus = usb_busses; bus; bus = bus->next)
-    	{
-    		for (dev = bus->devices; dev; dev = dev->next)
-    		{
-    			printf("Trying device %s/%s\n", bus->dirname, dev->filename);
-    			printf("\tID_VENDOR = 0x%04x\n", dev->descriptor.idVendor);
-    			printf("\tID_PRODUCT = 0x%04x\n", dev->descriptor.idProduct);
-    		}
-    	}
-
-    	sleep(1);
-    }
-    return NULL;
-}
 
 void USBRF_Init(void)
 {
 	memset(COM, 0, 32);
 	memcpy(COM, "/dev/ttyUSB0", strlen("/dev/ttyUSB0"));
+#if USBRF_AUTO
 	pthread_create(&usb_polling_handler, NULL, usb_polling, NULL);
+#else
+
+#endif
 }
 int USBRF_ConnectAvailable(void)
 {
-	int res = 1;
-	lock_usbrf_access();
-	if (usbrf_fd < 0)
-		res = 0;
-	unlock_usbrf_access();
-	return res;
+	if( access(COM, F_OK ) != -1 ) {
+	    return 1;
+	} else {
+	    return 0;
+	}
 }
 
 int USBRF_Connect(void)

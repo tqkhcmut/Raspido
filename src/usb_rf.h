@@ -10,6 +10,10 @@
 
 #include <stdint.h>
 
+#ifndef USBRF_AUTO
+#define USBRF_AUTO 0
+#endif
+
 extern void USBRF_Init(void);
 extern int USBRF_ConnectAvailable(void);
 extern int USBRF_Connect(void);
