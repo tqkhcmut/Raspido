@@ -67,6 +67,7 @@ extern int queryData(struct Device * dev);
 extern pthread_mutex_t device_control_access;
 extern pthread_mutex_t serial_access;
 extern pthread_mutex_t usbrf_access;
+extern pthread_mutex_t db_access;
 
 
 #endif /* SENSOR_H_ */

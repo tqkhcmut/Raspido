@@ -19,14 +19,15 @@
 char COM[32];
 
 int usbrf_fd = 0;
+int file_opened = 0;
 
 pthread_mutex_t usbrf_fd_access;
-static inline void lock_usbrf_access(void)
+void lock_usbrf_access(void)
 {
 	while (pthread_mutex_trylock(&usbrf_fd_access) != 0)
 		usleep(100);
 }
-static inline void unlock_usbrf_access(void)
+void unlock_usbrf_access(void)
 {
 	pthread_mutex_unlock(&usbrf_fd_access);
 }
@@ -141,16 +142,22 @@ int USBRF_Connect(void)
 {
 	int res = 0;
 	lock_usbrf_access();
-	usbrf_fd = open (COM, O_RDWR | O_NOCTTY | O_SYNC);
-
-	if (usbrf_fd < 0)
+	if (file_opened == 0)
 	{
-		printf("error %d opening %s: %s\r\n", errno, COM, strerror (errno));
-		res = -1;
-	}
-	set_interface_attribs (usbrf_fd, B115200, 0);  // set speed to 115,200 bps, 8n1 (no parity)
-	set_blocking (usbrf_fd, 0);
+		usbrf_fd = open (COM, O_RDWR | O_NOCTTY | O_SYNC);
 
+		if (usbrf_fd < 0)
+		{
+			printf("error %d opening %s: %s\r\n", errno, COM, strerror (errno));
+			res = -1;
+		}
+		else
+		{
+			set_interface_attribs (usbrf_fd, B115200, 0);  // set speed to 115,200 bps, 8n1 (no parity)
+			set_blocking (usbrf_fd, 0);
+		}
+		file_opened = 1;
+	}
 	unlock_usbrf_access();
 	return res;
 }
@@ -158,16 +165,16 @@ int USBRF_Connect(void)
 int USBRF_DisConnect(void)
 {
 	int res = 0;
-	lock_usbrf_access();
-	if (usbrf_fd < 0)
-	{
-		res = -1;
-	}
-	else
-	{
-		close(usbrf_fd);
-	}
-	unlock_usbrf_access();
+//	lock_usbrf_access();
+//	if (usbrf_fd < 0)
+//	{
+//		res = -1;
+//	}
+//	else
+//	{
+//		close(usbrf_fd);
+//	}
+//	unlock_usbrf_access();
 	return res;
 }
 int USBRF_DataAvailable(void)

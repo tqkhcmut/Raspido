@@ -35,6 +35,7 @@ pthread_mutex_t device_control_access = PTHREAD_MUTEX_INITIALIZER;
 // protect serial access
 pthread_mutex_t serial_access = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t usbrf_access = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t db_access = PTHREAD_MUTEX_INITIALIZER;
 
 int sendControl(struct Device dev)
 {
@@ -505,6 +506,7 @@ int Device_init(void)
 	pthread_mutex_init(&device_control_access, NULL);
 	pthread_mutex_init(&serial_access, NULL);
 	pthread_mutex_init(&usbrf_access, NULL);
+	pthread_mutex_init(&db_access, NULL);
 
 	RaspiExt_Init();
 

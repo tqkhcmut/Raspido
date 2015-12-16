@@ -22,4 +22,6 @@ extern int USBRF_DataAvailable(void);
 extern int USBRF_DataSend(uint8_t * buffer, int len);
 extern int USBRF_DataGet(uint8_t * buffer, int len);
 
+//extern void lock_usbrf_access(void);
+//extern void unlock_usbrf_access(void);
 #endif /* SRC_USB_RF_H_ */
