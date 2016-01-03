@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<title>Sense Host</title>
+<link rel="stylesheet" type="text/css" href="style_showdata.css" />
+<link rel="stylesheet" type="text/css" href="style.css" />
+	<script type="text/javascript" src="jquery-2-1-0-min.js"></script>
+	<script type="text/javascript" src="smoothie.js"></script>
+	<script type="text/javascript" src="code.js"></script>
+	<script type="text/javascript" src="howler.js"></script>
+</head>
+
+<body>
+<div id="wrap">
+	<div id="banner">
+    	<h1><a href="#"> Sense host</a></h1>	
+    </div><!--#END banner-->
+    <div id="content">
+    	<div id="container">
+            <div id="tittle">
+                <ul>
+                        <li class="name"><strong>Host</strong></li>
+                        <li class="name"><strong>Monitoring</strong></li>
+                        <li class="name"><strong>Datable</strong></li>
+                </ul>
+            </div>
+            <div id="primary">
+                <ul class="host">
+                    <li class="name">Host 01</li>
+                    <li class="con"><input type="image" src="images/monitoring5.png" alt="images not found" onClick="update_view(1, 'monitor')"/></li>
+                    <li class="con"><input type="image" src="images/data_table5.png" alt="images not found" onClick="update_view(1, 'table')"/></li>
+                </ul>
+                <ul class="host">
+                    <li class="name">Host 02</li>
+                    <li class="con"><a href="#"><img src="images/monitoring5.png" alt="fasle images" /></a></li>
+                    <li class="con"><a href="#"><img src="images/data_table5.png" alt="fasle images" /></a></li>
+                </ul>
+                <ul class="host">
+                    <li class="name">Host 03</li>
+                    <li class="con"><a href="#"><img src="images/monitoring5.png" alt="fasle images" /></a></li>
+                    <li class="con"><a href="#"><img src="images/data_table5.png" alt="fasle images" /></a></li>
+                </ul>
+                <ul class="host">
+                    <li class="name">Host 04</li>
+                    <li class="con"><a href="#"><img src="images/monitoring5.png" alt="fasle images" /></a></li>
+                    <li class="con"><a href="#"><img src="images/data_table5.png" alt="fasle images" /></a></li>
+                </ul>                
+            </div> <!--END #primary-->
+         </div> <!--End container-->  
+         <div id="show_data">
+         	
+            	<p class="tittle"><strong>Show data</strong></p>
+            
+            <div id="data">
+           		<div id="show_monitor">
+                <div id="show_monitor_title"><p class="tittle_monitoring"><strong>Host 1</strong> : Monitoring</p> </div> <!-- end of show_monitor_title-->
+                    
+                    
+                  <div class="part">
+                      <p id='status'>Javascript <b>does not</b> appear to be working.</p>
+                      <p>Gas: <span id='gas_value'>0</span> ppm 
+                      <button hidden="true" id="gas_warning" onClick="stopSound()">Warning off</button></p>
+                      <canvas id="gas" height="100"></canvas>
+                  </div>    
+                  <div class="part">   
+                      <p>Lighting: <span id='light_value'>0</span> lux 
+                      <button id="lighting_warning" onClick="stopSound()">Warning off</button></p>
+                      <canvas id="lighting" height="100"></canvas>
+                  </div>
+                  <div class="part">    
+                      <p>Temperature: <span id='tempc_value'>0</span>&deg;C 
+                      <button id="tempc_warning" onClick="stopSound()">Warning off</button></p>
+                      <canvas id="tempc" height="100"></canvas>
+                  </div>    
+                    
+            	</div>		
+            <div id="show_table">
+                <div id="show_table_title"><p class="tittle_table"><strong>Host 1</strong> : Data Table</p></div> <!-- end of show_table_title-->
+                <div id="wrapper_table">
+                    <table id="table">
+                    </table>
+                </div>
+            </div>
+            	
+            </div>	
+         </div><!--END show_data-->
+     </div><!--Content-->   
+        
+</div><!--end #wrap-->
+
+
+</body>
+</html>

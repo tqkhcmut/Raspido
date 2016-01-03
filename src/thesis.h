@@ -13,7 +13,11 @@
 #include "packet.h"
 
 #ifndef THESIS_DEBUG
-#define THESIS_DEBUG 1
+#define THESIS_DEBUG 0
+#endif
+
+#ifndef DATABASE_DEBUG
+#define DATABASE_DEBUG 1
 #endif
 
 int CreateThesisThread(pthread_t * handler1, pthread_t * handler2, uint32_t unique_number);

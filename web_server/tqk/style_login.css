@@ -1,0 +1,105 @@
+*{margin:0; padding:0}
+body {
+	font-family: "Levenim MT", helvetica;
+	font-size: 62.5%;
+background-color: #999;
+
+}
+#wrap{
+background-color: white;
+width:500px;
+margin: 200px auto;
+}
+
+form{
+with:100%;
+height: 340px
+}
+h1{
+@include box-shadow(0 9px #000);
+font-size:2.5em;
+padding: 20px;
+background-color: #272c2d;
+color:#CCC;
+text-align:center;
+text-transform:uppercase;
+font-weight: bold;
+margin-bottom:30px;
+}
+
+input{
+display:block;
+padding: 10px 100px 5px 70px;
+margin:15px 0px 0px 90px;
+
+}
+input[type=text],input[type=password]{
+text-align:center;
+color:#333;
+border:none;
+border-bottom: 1px solid #626262;
+font-size:1.3em;
+font-family:"Levenim MT";
+}
+label{
+font-size:1.3em;
+float:right;
+color:#444444;
+margin:0px 107px 12px 0px;
+}
+input[type=checkbox]
+{
+display:inline;
+}
+input[type=submit]{
+color:#ccc;
+background-color:#3a3f41;
+border:none;
+padding:10px 133px;
+text-align:center;
+margin-bottom: 15px;
+cursor:pointer;
+font-family:"Levenim MT";
+
+}
+#help{
+
+width:350px;
+margin: 0 auto;
+}
+p{
+display: inline;
+margin: 0px 20px;
+padding: 0 5px;
+}
+p a{
+font-size:1.3em;
+color:#00d8ff;
+text-decoration:none;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

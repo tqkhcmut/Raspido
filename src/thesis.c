@@ -28,6 +28,10 @@ struct ThesisData __sensors_data[SENSORS_MAX];
 unsigned char sensor_active[SENSORS_MAX];
 //uint32_t __unique_number = 1;
 
+#define GAS_LIMIT 1500
+#define LIGHT_LIMIT 100
+#define TEMPC_LIMIT 40
+
 
 #define THESIS_DB_NAME "/var/www/tqk/thesis.db"
 
@@ -47,7 +51,8 @@ typedef union
 
 int ThesisConnectDB(void)
 {
-	int errno = sqlite3_open(THESIS_DB_NAME, &thesis_db);
+	int errno = sqlite3_open_v2(THESIS_DB_NAME, &thesis_db, SQLITE_OPEN_READWRITE |
+			SQLITE_OPEN_CREATE | SQLITE_OPEN_WAL, NULL);
 	if (errno == SQLITE_OK)
 	{
 		isOpenThesisDB = 1;
@@ -143,6 +148,70 @@ int ThesisQueryData(struct ThesisData * data, uint32_t unique_number)
 	}
 }
 
+int UpdateSensorInfos(struct ThesisData * limit_data, uint32_t unique_number, int active_state)
+{
+	sqlite3_stmt *statement;
+	int result = -1;
+	char query[1024];
+
+	int access_try = 50;
+	while (pthread_mutex_trylock(&db_access) != 0)
+	{
+		access_try--;
+		if (access_try == 0)
+			break;
+		usleep(10000); // 10ms
+	}
+	if (access_try > 0)
+	{
+		if (ThesisConnectDB())
+		{
+			sprintf(query,
+					"update sensors set active_state = %d, gas_limit = %0.3f, light_limit = %0.3f, tempc_limit = %0.3f, active_time = current_timestamp WHERE unique_number = %d",
+					active_state,
+					limit_data->Gas,
+					limit_data->Lighting,
+					limit_data->TempC,
+					unique_number);
+#if DATABASE_DEBUG
+			printf("Thread: %d: Database query: %s.\n", unique_number, query);
+#endif
+
+			int prepare_query = sqlite3_prepare(thesis_db, query, -1, &statement, 0);
+			if (prepare_query == SQLITE_OK)
+			{
+				int res = sqlite3_step(statement);
+				result = res;
+				sqlite3_finalize(statement);
+			}
+			else
+			{
+#if DATABASE_DEBUG
+				printf("Thread: %d: Database prepare_query error: %s.", unique_number, sqlite3_errstr(prepare_query));
+#endif
+			}
+			ThesisDisonnectDB();
+			pthread_mutex_unlock(&db_access);
+			return result;
+		}
+		else
+		{
+#if DATABASE_DEBUG
+			printf("Thread: %d: Database cannot connect..", unique_number);
+#endif
+			result = 0;
+		}
+		pthread_mutex_unlock(&db_access);
+	}
+	else
+	{
+#if DATABASE_DEBUG
+		printf("Thread: %d: cannot get db access.\n", unique_number);
+#endif
+	}
+	return result;
+}
+
 int ThesisStoreToDatabase(struct ThesisData * data, uint32_t unique_number)
 {
 	sqlite3_stmt *statement;
@@ -163,7 +232,7 @@ int ThesisStoreToDatabase(struct ThesisData * data, uint32_t unique_number)
 		sprintf(query,
 				"INSERT INTO sensor_values(unique_number, gas, lighting, tempc) VALUES(%d,%0.3f,%0.3f,%0.3f)",
 				unique_number, data->Gas, data->Lighting, data->TempC);
-#if THESIS_DEBUG
+#if DATABASE_DEBUG
 		printf("Thread: %d: Database query: %s.\n", unique_number, query);
 #endif
 		if (ThesisConnectDB())
@@ -177,7 +246,7 @@ int ThesisStoreToDatabase(struct ThesisData * data, uint32_t unique_number)
 			}
 			else
 			{
-#if THESIS_DEBUG
+#if DATABASE_DEBUG
 				printf("Thread: %d: Database prepare_query error: %s.", unique_number, sqlite3_errstr(prepare_query));
 #endif
 			}
@@ -187,7 +256,7 @@ int ThesisStoreToDatabase(struct ThesisData * data, uint32_t unique_number)
 		}
 		else
 		{
-#if THESIS_DEBUG
+#if DATABASE_DEBUG
 			printf("Thread: %d: Database cannot connect..", unique_number);
 #endif
 			result = 0;
@@ -196,7 +265,7 @@ int ThesisStoreToDatabase(struct ThesisData * data, uint32_t unique_number)
 	}
 	else
 	{
-#if THESIS_DEBUG
+#if DATABASE_DEBUG
 			printf("Thread: %d: cannot get db access.\n", unique_number);
 #endif
 	}
@@ -207,8 +276,13 @@ void * ThesisThread(void * params)
 {
 	unsigned int _time_poll = 1000000; // 500ms
 	uint32_t _sensor_unique = (unsigned int) params;
-	struct ThesisData _thesis_data;
-	int access_try = 50;
+	struct ThesisData _thesis_data, limit;
+	limit.Gas = GAS_LIMIT;
+	limit.Lighting = LIGHT_LIMIT;
+	limit.TempC = TEMPC_LIMIT;
+	int access_try = 50, disconnect_try = 3;
+	int active_reg = 0;
+	UpdateSensorInfos(&limit, _sensor_unique, 0);
 	for(;;)
 	{
 		access_try = 50;
@@ -228,10 +302,21 @@ void * ThesisThread(void * params)
 				_time_poll = 1000000;
 				//				pthread_mutex_unlock(&serial_access);
 				//				pthread_exit(NULL);
+				if (disconnect_try == 0)
+				{
+					if (active_reg == 1)
+					{
+						UpdateSensorInfos(&limit, _sensor_unique, 0);
+						active_reg = 0;
+					}
+				}
+				else
+					disconnect_try --;
 			}
 			else
 			{
 				_time_poll = 1000000;
+				disconnect_try = 3;
 #if THESIS_DEBUG
 				printf("Thread: %d: Got data from %d.\n", _sensor_unique, _sensor_unique);
 #endif
@@ -240,6 +325,12 @@ void * ThesisThread(void * params)
 
 				// put to array
 				__sensors_data[_sensor_unique] = _thesis_data;
+
+				if (active_reg == 0)
+				{
+					UpdateSensorInfos(&limit, _sensor_unique, 1);
+					active_reg = 1;
+				}
 			}
 			pthread_mutex_unlock(&serial_access);
 		}
@@ -336,8 +427,13 @@ void * ThesisThreadUSBRF(void * params)
 {
 	unsigned int _time_poll = 1000000; // 500ms
 	uint32_t _sensor_unique = (unsigned int) params;
-	struct ThesisData _thesis_data;
+	struct ThesisData _thesis_data, limit;
+	limit.Gas = GAS_LIMIT;
+	limit.Lighting = LIGHT_LIMIT;
+	limit.TempC = TEMPC_LIMIT;
 	int access_try = 50;
+	int active_reg = 0;
+	UpdateSensorInfos(&limit, _sensor_unique, 0);
 	for(;;)
 	{
 		access_try = 50;
@@ -357,6 +453,11 @@ void * ThesisThreadUSBRF(void * params)
 				_time_poll = 1000000;
 				//				pthread_mutex_unlock(&serial_access);
 				//				pthread_exit(NULL);
+				if (active_reg == 1)
+				{
+					UpdateSensorInfos(&limit, _sensor_unique, 0);
+					active_reg = 0;
+				}
 			}
 			else
 			{
@@ -366,9 +467,15 @@ void * ThesisThreadUSBRF(void * params)
 #endif
 				// put it to database
 				ThesisStoreToDatabase(&_thesis_data, _sensor_unique);
+				if (active_reg == 0)
+				{
+					UpdateSensorInfos(&limit, _sensor_unique, 1);
+					active_reg = 1;
+				}
 
 				// put to array
 				__sensors_data[_sensor_unique] = _thesis_data;
+
 			}
 			pthread_mutex_unlock(&usbrf_access);
 		}
