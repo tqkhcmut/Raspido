@@ -85,7 +85,7 @@ static PI_THREAD (softServoThread)
   int myPins   [MAX_SERVOS] ;
 
   struct timeval  tNow, tStart, tPeriod, tGap, tTotal ;
-  struct timespec tNs ;
+  struct timespec tNs;
 
   tTotal.tv_sec  =    0 ;
   tTotal.tv_usec = 8000 ;

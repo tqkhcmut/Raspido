@@ -8,597 +8,164 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
 #include "devices.h"
 #include "serial.h"
 #include "raspi_ext.h"
-#include "thesis.h"
 
 #include <unistd.h>
 #include "../wiringPi/wiringPi.h"
 
+#include "server.h"
+
 #include <pthread.h>
-	
-#include "queue.h"
-#include "register.h"
-#include "db_com.h"
-#include "usb_rf.h"
 
 #define DEV_HOST_NUMBER 4 // 4 USB interfaces
 
-pthread_t polling_thread[DEV_HOST_NUMBER];
-pthread_t polling_threadusb[DEV_HOST_NUMBER];
 struct Device dev_host[DEV_HOST_NUMBER];
 
-// protect device host access
-pthread_mutex_t device_control_access = PTHREAD_MUTEX_INITIALIZER;
-// protect serial access
-pthread_mutex_t serial_access = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t usbrf_access = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t db_access = PTHREAD_MUTEX_INITIALIZER;
+#define BUFFER_SIZE 128
+uint8_t send_buff[BUFFER_SIZE];
+uint8_t recv_buff[BUFFER_SIZE];
+uint8_t data_buff[BUFFER_SIZE];
+
+union int_s
+{
+  uint32_t n;
+  uint8_t b[4];
+};
+union float_s
+{
+	float f;
+	uint8_t b[4];
+};
+
 
 int sendControl(struct Device dev)
 {
-	int data_len = getTypeLength(dev.data_type);
-	int packet_len = 4 + data_len;
-	struct Packet * packet = malloc(packet_len);
 
-	packet->id = dev.number | dev.type;
-	packet->cmd = CMD_TYPE_CONTROL;
-#if __BYTE_ORDER == __BIG_ENDIAN
-	packet->data_type = (dev->data_type & 0x0f) | BIG_ENDIAN_BYTE_ORDER;
-#else
-	packet->data_type = DEV_TYPE_MASK(dev.data_type) | LITTLE_ENDIAN_BYTE_ORDER;
-#endif
-	memset(packet->data, 0, data_len);
-	packet->data[0] = dev.type | dev.number;
-	// add checksum byte
-	*(((char *)packet) + packet_len - 1) = checksum((char *)packet);
-
-	Serial_SendMultiBytes((unsigned char *) packet, packet_len);
-	free(packet);
 	return 0;
 }
 
-#if DEVICE_DEBUG
-int DeviceInfo(struct Device * dev)
-{
-	int i;
-	printf("Device information.\n");
-	printf("Device Type: %02X.\n", dev->type);
-	printf("Device Number: %02X.\n", dev->number);
-	printf("Device Data Type: %02X.\n", dev->data_type);
-	printf("Device Data: ");
-	for (i = 0; i < getTypeLength(dev->data_type); i++)
-	{
-		printf("%02X ", dev->data[i]);
-	}
-	printf("\n");
-	return i;
-}
-#endif
-
 int queryData(struct Device * dev)
 {
-	int packet_len, data_len;
-	struct Packet * packet = malloc(128);
-
-	if (dev->data == NULL)
-	{
-		if (IS_MY_THESIS(dev->type))
-		{
-			dev->data = malloc(sizeof (struct ThesisData));
-			memset(dev->data, 0, sizeof (struct ThesisData));
-		}
-		else
-		{
-			dev->data = malloc(getTypeLength(dev->data_type));
-			memset(dev->data, 0, getTypeLength(dev->data_type));
-		}
-	}
-
-#if DEVICE_DEBUG
-	printf("Query Device: \n");
-	DeviceInfo(dev);
-#endif
-
-	if (IS_MY_THESIS(dev->type))
-	{
-		data_len = sizeof(struct ThesisData);
-		packet_len = 4 + data_len;
-		//packet = malloc(packet_len);
-	}
-	else
-	{
-		data_len = getTypeLength(dev->data_type);
-		packet_len = 4 + data_len;
-		//packet = malloc(packet_len);
-	}
-
-	packet->id = dev->number | dev->type;
-	packet->cmd = CMD_TYPE_QUERY;
-#if __BYTE_ORDER == __BIG_ENDIAN
-	packet->data_type = DEV_TYPE_MASK(dev->data_type) | BIG_ENDIAN_BYTE_ORDER;
-#else
-	packet->data_type = DEV_TYPE_MASK(dev->data_type) | LITTLE_ENDIAN_BYTE_ORDER;
-#endif
-	memcpy(packet->data, dev->data, data_len);
-	// add checksum byte
-	packet->data[data_len] = checksum((char *)packet);
-
-#if DEVICE_DEBUG
-	printf("Query Packet: ");
+	int serial_len = 0;
 	int i;
-	for (i = 0; i < packet_len + 1; i++)
+
+	/*
+	 *
+	 */
+	printf("Query data for device: %2X\r\n", dev->dev_data.id);
+
+	// required physical packet had it length plus 1 for checksum
+	struct PhysicalPacket * send_phy = (struct PhysicalPacket *)send_buff;
+	data_to_phy(&(dev->dev_data), send_phy);
+	((uint8_t *)send_phy)[send_phy->length] = checksum(send_phy);
+	Serial_SendMultiBytes((unsigned char *)send_phy, send_phy->length + 1);
+
+	/*
+	 *
+	 */
+	printf("Query Packet: ");
+	for (i = 0; i < send_phy->length + 1; i++)
 	{
-		printf("%02X ", *((unsigned char *) packet + i));
+		printf("%2X ", ((unsigned char *)send_phy)[i]);
 	}
-	printf("Checksum: %02X.\n", *(((char *)packet) + packet_len));
-	printf("\n");
-#endif
+	printf("\r\n");
 
-	Serial_SendMultiBytes((unsigned char *) packet, packet_len);
-	// sleep 5ms for timeout
-	usleep(5000);
-	packet_len = Serial_Available();
-	if (packet_len)
+	// wait for devices responses
+	usleep(10000); // 10ms
+
+	serial_len = Serial_Available();
+	if (serial_len > 7)
 	{
-		Serial_GetData((char *) packet, packet_len);
-		// checksum check
-		if (checksum((char *)packet) != packet->data[getTypeLength(packet->data_type)])
-		{
-#if DEVICE_DEBUG
-			printf("Wrong checksum.\n");
-#endif
-			// what should to do now?
-			if (packet != NULL)
-			{
-				free(packet);
-				packet = NULL;
-			}
-			return 0;
-		}
+//		char * raw_buffer = calloc(serial_len, sizeof(char));
+		Serial_GetData((char *)recv_buff, serial_len);
 
-#if DEVICE_DEBUG
+		/*
+		 *
+		 */
 		printf("Received Packet: ");
-		int i;
-		for (i = 0; i < packet_len + 1; i++)
+		for (i = 0; i < serial_len; i++)
 		{
-			printf("%02X ", *((unsigned char *) packet + i));
+			printf("%2X ", recv_buff[i]);
 		}
-		printf("Checksum: %02X.\n", *(((char *)packet) + packet_len));
-		printf("\n");
-#endif
-		
-		// reallocating memory if not old data type
-		if (dev->data_type != DATA_TYPE_MASK(packet->data_type))
-		{
-			if (dev->data != NULL)
-				free(dev->data);
-			if (IS_MY_THESIS(DEV_TYPE_MASK(packet->id)))
-			{
-				dev->data = malloc(sizeof(struct ThesisData));
-			}
-			else
-			{
-				dev->data = malloc(getTypeLength(DATA_TYPE_MASK(packet->data_type)));
-			}
-		}
+		printf("\r\n");
 
-		dev->data_type = DATA_TYPE_MASK(packet->data_type);
-		dev->type = DEV_TYPE_MASK(packet->id);
-		dev->number = DEV_NUMBER_MASK(packet->id);
-		if (IS_MY_THESIS(DEV_TYPE_MASK(packet->id)))
+		struct PhysicalPacket * recv_phy = (struct PhysicalPacket *)recv_buff;
+
+		if (checksum(recv_phy) != recv_buff[serial_len-1])
 		{
-			dev->polling_control.time_poll_ms = 500;
-			memcpy(dev->data, packet->data, sizeof (struct ThesisData));
+			printf("Wrong checksum.\r\n");
 		}
 		else
 		{
-			memcpy(dev->data, packet->data, getTypeLength(packet->data_type));
+			struct DataPacket * data = (struct DataPacket * )data_buff;
+			phy_to_data(recv_phy, data);
+
+			printf("Receive data from: %2X.\r\n", data->id);
+			if (data->id == DEV_ULTRA_SONIC)
+			{
+				union float_s distance;
+				union int_s unique_number;
+				distance.b[0] = data->data[3];
+				distance.b[1] = data->data[2];
+				distance.b[2] = data->data[1];
+				distance.b[3] = data->data[0];
+				unique_number.b[0] = data->unique_number[3];
+				unique_number.b[1] = data->unique_number[2];
+				unique_number.b[2] = data->unique_number[1];
+				unique_number.b[3] = data->unique_number[0];
+				printf("Receive distance: %0.3f from ultra sonic: %d.\r\n",
+						distance.f, unique_number.n);
+			}
 		}
-		if (packet != NULL)
-		{
-			free(packet);
-			packet = NULL;
-		}
-		return packet_len;
+
+//		free(raw_buffer);
 	}
-	else
-	{
-		if (packet != NULL)
-		{
-			free(packet);
-			packet = NULL;
-		}
-		return 0;
-	}
+
+//	free(phy);
+	return 0;
 }
 
-void * DevicePolling(void * host_number) // thread
+int Device_Polling(void) // thread
 {
-	unsigned char poll_en = 0;
-	unsigned int time_poll = 30000;
-	unsigned char destroy = 0;
-	int host = (int) host_number;
-	unsigned char trying_time = 0, dev_disconnect_try_time = 3;
-	float_struct_t my_float;
-
-	if  (host < 0 || host >= DEV_HOST_NUMBER)
+	int i;
+	for (i = 0; i < DEV_HOST_NUMBER; i++)
 	{
-		printf("Host number not valid.\r\nIt should be greater or equal zero and lester than %d.\r\n", DEV_HOST_NUMBER);
-		printf("Thread exiting.\r\n");
-		pthread_exit(NULL);
+		queryData(&dev_host[i]);
+		sleep(1);
 	}
-
-	printf("Thread: %d start with host: %d.\n",
-			(int)polling_thread[host], host);
-
-	while(1)
-	{
-		if (pthread_mutex_trylock(&device_control_access) == 0)
-		{
-			poll_en = dev_host[host].polling_control.enable;
-			time_poll = dev_host[host].polling_control.time_poll_ms * 1000;
-			destroy = dev_host[host].polling_control.destroy;
-			pthread_mutex_unlock(&device_control_access);
-		}
-		else
-		{
-			printf("Thread: %d. host: %d. Fail to access device control.\n",
-					(int)polling_thread[host], host);
-			usleep(1000);
-		}
-
-		if (destroy)
-		{
-			printf("Thread: %d. host: %d. Destroying.\n",
-					(int)polling_thread[host], host);
-			pthread_exit(NULL);
-		}
-
-		if (poll_en)
-		{
-			//while (pthread_mutex_trylock(&device_control_access) != 0)
-				//usleep(1000);
-			if (dev_host[host].type != DEV_UNKNOWN) // already known device type
-			{
-				trying_time = 0;
-				while (pthread_mutex_trylock(&serial_access) != 0)
-				{
-					usleep(1000);
-					trying_time ++;
-					if (trying_time > 10)
-						break;
-				}
-				if (trying_time > 10)
-				{
-#if DEVICE_DEBUG
-					printf("Thread: %d. host: %d. Fail to access serial port.\n",
-							(int)polling_thread[host], host);
-#endif
-					//pthread_mutex_unlock(&device_control_access);
-					usleep(time_poll);
-					continue;
-				}
-				else
-				{
-					RaspiExt_Pin_Hostx_Active(host + 1);
-					if (queryData(&dev_host[host]))
-					{
-#if DEVICE_DEBUG
-						printf("Thread: %d. host: %d. Got data from device.\n",
-								(int)polling_thread[host], host);
-						DeviceInfo(&dev_host[host]);
-#endif
-						dev_disconnect_try_time = 3;
-					}
-					else
-					{
-#if DEVICE_DEBUG
-						printf("Thread: %d. host: %d. No device here.\n",
-								(int)polling_thread[host], host);
-#endif
-						if (dev_disconnect_try_time == 0)
-						{						
-						// TODO: unregister this device
-							unsigned char reg_id = dev_host[host].number | dev_host[host].type;
-							printf("Thread: %d. host: %d. Unregister device %X.\n",
-								(int)polling_thread[host],
-								host, 
-								reg_id);	
-							UnRegisterID(&reg_id);
-							if (IS_MY_THESIS(DEV_TYPE_MASK(dev_host[host].type)))
-							{
-								if (dev_host[host].data != NULL)
-									memset(dev_host[host].data, 0, sizeof(struct ThesisData));
-							}
-							else
-							{
-								if (dev_host[host].data != NULL)
-								memset(dev_host[host].data, 0, getTypeLength(dev_host[host].type));
-							}
-							dev_host[host].type = DEV_UNKNOWN;
-							dev_host[host].number = DEV_NUMBER_UNKNOWN;
-						}
-						else
-						{
-							dev_disconnect_try_time--;
-						}
-					}
-					RaspiExt_Pin_Hostx_Inactive(host + 1);
-				}
-				pthread_mutex_unlock(&serial_access);
-
-				switch (dev_host[host].type)
-				{
-				case DEV_SENSOR_TEMPERATURE:
-					RaspiExt_LED_Hostx_Config(LED_MODE_TOGGLE, 1000, host + 1);
-					
-					if (IS_BIG_ENDIAN_BYTE_ORDER(dev_host[host].data_type))
-					{
-						my_float.f_byte[0] = dev_host[host].data[3];
-						my_float.f_byte[1] = dev_host[host].data[2];
-						my_float.f_byte[2] = dev_host[host].data[1];
-						my_float.f_byte[3] = dev_host[host].data[0];
-					}
-					else
-					{
-						my_float.f_byte[0] = dev_host[host].data[0];
-						my_float.f_byte[1] = dev_host[host].data[1];
-						my_float.f_byte[2] = dev_host[host].data[2];
-						my_float.f_byte[3] = dev_host[host].data[3];
-					}
-					printf("Thread: %d. host: %d. Temperature: %0.3f.\n",
-						(int)polling_thread[host],
-						host,
-						my_float.f);
-
-					// adjust time polling
-					if (pthread_mutex_trylock(&device_control_access) == 0)
-					{
-						dev_host[host].polling_control.time_poll_ms = 50;
-					}
-					else
-					{
-						printf("Thread: %d. host: %d. Fail to access device control.\n",
-							(int)polling_thread[host],
-							host);
-					}
-
-					// save to shared memory
-
-					break;
-				case DEV_SENSOR_ULTRA_SONIC:
-					RaspiExt_LED_Hostx_Config(LED_MODE_TOGGLE, 100, host + 1);
-					
-					my_float.f_byte[0] = dev_host[host].data[3];
-					my_float.f_byte[1] = dev_host[host].data[2];
-					my_float.f_byte[2] = dev_host[host].data[1];
-					my_float.f_byte[3] = dev_host[host].data[0];
-					printf("Thread: %d. host: %d. Distance: %0.3f.\n",
-						(int)polling_thread[host],
-						host,
-						my_float.f);
-					
-					// adjust time polling
-
-					// save to shared memory
-
-					break;
-				case DEV_SENSOR_LIGTH:
-					RaspiExt_LED_Hostx_Config(LED_MODE_TOGGLE, 50, host + 1);
-					break;
-				case DEV_RF:
-					break;
-				case DEV_BLUETOOTH:
-					break;
-				case DEV_BUZZER:
-					break;
-				case DEV_SENSOR_GAS:
-					RaspiExt_LED_Hostx_Config(LED_MODE_TOGGLE, 50, host + 1);
-					break;
-				case DEV_SIM900:
-					break;
-				case DEV_MY_THESIS:
-					RaspiExt_LED_Hostx_Config(LED_MODE_TOGGLE, 1000, host + 1);
-					break;
-				default:
-#if DEVICE_DEBUG
-					printf("Thread: %d. host: %d. Unknown device type.\n",
-							(int)polling_thread[host], host);
-#endif
-					dev_host[host].type = DEV_UNKNOWN;
-					dev_host[host].number = DEV_NUMBER_UNKNOWN;
-					break;
-				}
-			}
-			else // unknown device type
-			{
-				RaspiExt_LED_Hostx_Config(LED_MODE_OFF, 50, host + 1);
-				
-#if DEVICE_DEBUG
-				printf("Thread: %d. host: %d. Unknown device, identifying.\n",
-						(int)polling_thread[host], host);
-#endif
-
-				// query broadcast id to identify what it is
-				// adjust time polling to 500 ms
-				time_poll = 500000;
-
-
-				trying_time = 0;
-				while (pthread_mutex_trylock(&serial_access) != 0)
-				{
-					usleep(1000);
-					trying_time ++;
-					if (trying_time > 10)
-					{
-						break;
-					}
-				}
-				if (trying_time > 10)
-				{
-#if DEVICE_DEBUG
-					printf("Thread: %d. host: %d. Fail to access serial port.\n",
-							(int)polling_thread[host], host);
-#endif
-					usleep(time_poll);
-					continue;
-				}
-				else
-				{
-#if DEVICE_DEBUG
-					//dev_host[host].type = DEV_SENSOR_ULTRA_SONIC;
-					//dev_host[host].number = 0x01;
-#endif
-					RaspiExt_Pin_Hostx_Active(host + 1);
-					if (queryData(&dev_host[host]))
-					{
-#if DEVICE_DEBUG
-						printf("Thread: %d. host: %d. Got data from device.\n",
-								(int)polling_thread[host], host);
-#endif
-						// TODO: register new id
-						unsigned char reg_id = dev_host[host].type | dev_host[host].number;
-						if (RegisterID(&reg_id) != 0)
-						{
-							printf("Thread: %d. host: %d. Fail to register new device.\n",
-								(int)polling_thread[host],
-								host);
-						}
-						else
-						{
-							printf("Thread: %d. host: %d. Registered new device %X.\n",
-								(int)polling_thread[host],
-								host, 
-								reg_id);							
-						}
-						dev_host[host].type = DEV_TYPE_MASK(reg_id);
-						dev_host[host].number = DEV_NUMBER_MASK(reg_id);
-						sendControl(dev_host[host]);
-					}
-					else
-					{
-#if DEVICE_DEBUG
-						printf("Thread: %d. host: %d. No device here.\n",
-								(int)polling_thread[host], host);
-#endif
-
-					}
-					RaspiExt_Pin_Hostx_Inactive(host + 1);
-				}
-
-				pthread_mutex_unlock(&serial_access);
-			}
-			usleep(time_poll);
-			
-			//pthread_mutex_unlock(&device_control_access);
-		}// query device
-		
-	}
+	return 0;
 }
-int Device_init(void)
+int Device_Init(void)
 {
 	int i = 0;
 	printf("Initial Sensor Host.\r\n");
 	
-	pthread_mutex_init(&device_control_access, NULL);
-	pthread_mutex_init(&serial_access, NULL);
-	pthread_mutex_init(&usbrf_access, NULL);
-	pthread_mutex_init(&db_access, NULL);
-
+	// for external components controller
 	RaspiExt_Init();
 
 	Serial_Init();
 	for (i = 0; i < DEV_HOST_NUMBER; i++)
 	{
 		printf("Initial Sensor Host %d parameters.\r\n", i);
-		dev_host[i].data_type = DATA_TYPE_FLOAT;
-		dev_host[i].number = DEV_NUMBER_UNKNOWN;	// unknown
-		dev_host[i].type = DEV_UNKNOWN;		// unknown
-		dev_host[i].data = NULL;
 		dev_host[i].polling_control.enable = 0;
 		dev_host[i].polling_control.time_poll_ms = 200;
 		dev_host[i].polling_control.destroy = 0;
-
-		printf("Create thread poll for Sensor Host %d.\r\n", i);
-//		pthread_create(&polling_thread[i], NULL, &DevicePolling, (void *)i);
-		CreateThesisThread(&polling_thread[i], &polling_threadusb[i], i+1);
+		dev_host[i].dev_data.id = DEV_ULTRA_SONIC;
+//		dev_host[i].dev_data.data = NULL;
+		dev_host[i].dev_data.data_length = 0;
+		dev_host[i].dev_data.data_type = DATA_TYPE_NULL;
+		dev_host[i].dev_data.type = CMD_ULTRA_SONIC | CMD_TYPE_QUERY;
+		dev_host[i].dev_data.unique_number[0] = 0;
+		dev_host[i].dev_data.unique_number[1] = 0;
+		dev_host[i].dev_data.unique_number[2] = 2;
+		dev_host[i].dev_data.unique_number[3] = i;
 	}
-	USBRF_Init();
-	// create database push polling
-//	db_com_init(dev_host);
-	return 0;
-}
-int Device_startPooling(int host_number)
-{
-	if (host_number < 1 || host_number > DEV_HOST_NUMBER)
-	{
-		printf("Invalid Host Number. (1 - %d).\n", DEV_HOST_NUMBER);
-		return -1;
-	}
-	while(pthread_mutex_trylock(&device_control_access) != 0)
-		usleep(100);
 
-	//	pthread_mutex_lock(&device_control_access);
-	dev_host[host_number-1].polling_control.enable = 1;
-	pthread_mutex_unlock(&device_control_access);
+	CreateServer(4);
 
-	return 0;
-}
-
-int Device_stopPooling(int host_number)
-{
-	if (host_number < 1 || host_number > DEV_HOST_NUMBER)
-	{
-		printf("Invalid Host Number. (1 - %d).\n", DEV_HOST_NUMBER);
-		return -1;
-	}
-	while(pthread_mutex_trylock(&device_control_access) != 0)
-		usleep(100);
-
-	//	pthread_mutex_lock(&device_control_access);
-	dev_host[host_number-1].polling_control.enable = 0;
-	pthread_mutex_unlock(&device_control_access);
-
-	return 0;
-}
-
-int Device_destroyAll(void)
-{
-	int i;
-	while(pthread_mutex_trylock(&device_control_access) != 0)
-		usleep(100);
-
-	//	pthread_mutex_lock(&device_control_access);
-	for (i = 0; i < DEV_HOST_NUMBER; i++)
-	{
-		dev_host[i].polling_control.destroy = 1;
-	}
-	pthread_mutex_unlock(&device_control_access);
-
-	RaspiExt_DestroyAll();
-
-#if DATABASE
-	if (db != NULL)
-		// Close database
-		sqlite3_close(db);
-#endif
-
-	return 0;
-}
-
-int Device_waitForExit(void)
-{
-	if (pthread_equal(pthread_self(), polling_thread[0]) == 0)
-		pthread_join(polling_thread[0], NULL);
-	if (pthread_equal(pthread_self(), polling_thread[1]) == 0)
-		pthread_join(polling_thread[1], NULL);
-	if (pthread_equal(pthread_self(), polling_thread[2]) == 0)
-		pthread_join(polling_thread[2], NULL);
-	if (pthread_equal(pthread_self(), polling_thread[3]) == 0)
-		pthread_join(polling_thread[3], NULL);
-	RaspiExt_WaitForExit();
 	return 0;
 }

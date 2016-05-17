@@ -451,7 +451,6 @@ int RaspiExt_PowerOff(void)
 	// or just call system shutdown command
 	//system("shutdown -h now");
 
-	Device_destroyAll(); // :))
 	return 0;
 }
 

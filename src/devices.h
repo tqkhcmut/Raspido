@@ -8,6 +8,11 @@
 #ifndef DEVICES_H_
 #define DEVICES_H_
 
+/*
+ * this file contain devices communication source code
+ * used for get or set data to devices
+ */
+
 //#include "global_config.h"
 #include "packet.h"
 #include <pthread.h>
@@ -17,8 +22,8 @@
 #define DEVICE_DEBUG 1
 #endif
 
-#ifndef DATABASE
-#define DATABASE 0
+#ifndef DEVICE_DATABASE
+#define DEVICE_DATABASE 0
 #endif
 
 
@@ -31,22 +36,16 @@ struct polling_control
 
 struct Device
 {
-	unsigned char number;
-	unsigned char type;
-
+	//
 	struct polling_control polling_control;
 
-	unsigned char data_type;
-	unsigned char * data;
+	// required packet.h
+	struct DataPacket dev_data;
 };
 
-struct HostInfo
-{
-	unsigned char buzzer_available;
-	unsigned char sim900_available;
-	unsigned char rf_available;
-};
-
+/*
+ * float structure, use for byte order correction
+ */
 union float_struct
 {
 	float f;
@@ -54,20 +53,8 @@ union float_struct
 };
 typedef union float_struct float_struct_t;
 
-extern int Device_init(void);
-extern int Device_startPooling(int host_number);
-extern int Device_stopPooling(int host_number);
-extern int Device_destroyAll(void);
-extern int Device_waitForExit(void);
-
-
-extern int sendControl(struct Device dev);
-extern int queryData(struct Device * dev);
-
-extern pthread_mutex_t device_control_access;
-extern pthread_mutex_t serial_access;
-extern pthread_mutex_t usbrf_access;
-extern pthread_mutex_t db_access;
+extern int Device_Init(void);
+extern int Device_Polling(void);
 
 
 #endif /* SENSOR_H_ */

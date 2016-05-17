@@ -1,74 +1,117 @@
 #include "packet.h"
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
 
-
-uint8_t getTypeLength(uint8_t data_type)
+int phy_to_data(struct PhysicalPacket * phy, struct DataPacket * data)
 {
-	switch (DATA_TYPE_MASK(data_type))
+	int ret = 0;
+	data->type = phy->type;
+	data->id = phy->id;
+	/*
+	 * @warning: make sure buffer have right allocation
+	 */
+	memcpy(data->unique_number, phy->unique_number, 4);
+	if (phy->data != NULL)
 	{
-	case DATA_TYPE_BYTE:
-		return 1; //sizeof(uint8_t);
-		break;
-	case DATA_TYPE_INT8:
-		return 1; //sizeof(signed char);
-		break;
-	case DATA_TYPE_INT16:
-		return 2; //sizeof(signed short);
-		break;
-	case DATA_TYPE_INT32:
-		return 4; //sizeof(signed int);
-		break;
-	case DATA_TYPE_INT64:
-		return 8; //sizeof(signed long);
-		break;
-	case DATA_TYPE_UINT16:
-		return 2; //sizeof(unsigned short);
-		break;
-	case DATA_TYPE_UINT32:
-		return 4; //sizeof(unsigned int);
-		break;
-	case DATA_TYPE_UINT64:
-		return 8; //sizeof(unsigned long);
-		break;
-	case DATA_TYPE_FLOAT:
-		return sizeof(float);
-		break;
-	case DATA_TYPE_DOUBLE:
-		return sizeof(double);
-		break;
-	case DATA_TYPE_THESIS_DATA:
-		return sizeof(struct ThesisData);
-		break;
-	case DATA_TYPE_THESIS_OUTPUT:
-		return sizeof(struct ThesisOutput);
-		break;
-	case DATA_TYPE_THESIS_SIM:
-		return sizeof(struct ThesisSIM);
-		break;
-	case DATA_TYPE_THESIS_TIME:
-		return sizeof(struct ThesisTime);
-		break;
-	case DATA_TYPE_THESIS_CLOCK:
-		return sizeof(struct ThesisClock);
-		break;
-	default:
-		return 0;
-		break;
+		data->data_type = phy->data[0]; // first byte of physical data
+		data->data_length = get_data_length(data->data_type);
+		/*
+		 * @warning: make sure buffer have right allocation
+		 */
+//		if (data->data != NULL)
+//			free(data->data);
+//		data->data = calloc(data->data_length, 1);
+		memcpy(data->data, (phy->data + 1), data->data_length);
 	}
+
+	return ret;
+}
+int data_to_phy(struct DataPacket * data, struct PhysicalPacket *phy)
+{
+	int ret = 0;
+
+//	/*
+//	 *
+//	 */
+//	printf("Convert Data packet to Physical packet.\r\n");
+//
+//	printf("Copy type and id\r\n");
+	phy->type = data->type;
+	phy->id = data->id;
+
+	/*
+	 * @warning: make sure buffer have right allocation
+	 */
+//	printf("Copy unique number.\r\n");
+	memcpy(phy->unique_number, data->unique_number, 4);
+	/*
+	 * @warning: make sure buffer have right allocation
+	 */
+//	printf("Copy data.\r\n");
+	if (data->data != NULL)
+	{
+//		if (phy->data != NULL)
+//			free(phy->data);
+//		phy->data = calloc(data.data_length + 1, 1);
+		phy->data[0] = data->data_type; // first byte of physical data
+		memcpy((phy->data + 1), data->data, data->data_length);
+	}
+//	printf("Update PhysicalPacket length.\r\n");
+	phy->length = data->data_length 	// data
+			+ 4 					// unique number
+			+ 1 					// id
+			+ 2; 					// type and length
+
+	/*
+	 *
+	 */
+//	printf("End if converting Data packet to Physical packet.\r\n");
+
+	return ret;
 }
 
-uint8_t getPacketLength(char * packet)
-{
-	struct Packet * mypacket = (struct Packet *)packet;
-  return sizeof(struct Packet) + getTypeLength(mypacket->data_type) + 1; // add 1 for checksum
-}
 
-uint8_t checksum(char * packet)
+int get_data_length(int data_type)
 {
-	uint8_t checksum, i;
-//	packet_len = getTypeLength(mypacket->data_type) + 3;
-	for (i = 0; i < getPacketLength(packet) - 1; i++)
+	int ret = 0;
+	if (IS_SUPPORT_DATA_TYPE(data_type))
+	{
+		switch(data_type)
+		{
+		case DATA_TYPE_U8:
+		case DATA_TYPE_S8:		ret = 1; break;
+		case DATA_TYPE_U16:
+		case DATA_TYPE_S16:		ret = 2; break;
+		case DATA_TYPE_U32:
+		case DATA_TYPE_S32:		ret = 4; break;
+		case DATA_TYPE_U64:
+		case DATA_TYPE_S64:		ret = 8; break;
+		case DATA_TYPE_FLOAT: 	ret = 4; break;
+		case DATA_TYPE_DOUBLE: 	ret = 8; break;
+
+		case DATA_TYPE_ULTRA_SONIC:
+			ret = sizeof(struct UltraSonic);
+			break;
+		case DATA_TYPE_TEMPERATURE:
+			break;
+		case DATA_TYPE_TIME:
+			break;
+		case DATA_TYPE_CALENDER:
+			break;
+		default: break;
+		}
+	}
+
+	return ret;
+}
+uint8_t checksum(struct PhysicalPacket * phy)
+{
+	uint8_t checksum = 0, i;
+	uint8_t * packet = (uint8_t *)phy;
+	for (i = 0; i < phy->length; i++)
 		checksum += packet[i];
-	checksum = !checksum + 1;
+	checksum = (uint8_t)!checksum + 1;
 	return checksum;
 }
 
